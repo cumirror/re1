@@ -32,13 +32,14 @@ main(int argc, char **argv)
 
 	if(argc < 2)
 		usage();
-	
+
 	re = parse(argv[1]);
 	printre(re);
 	printf("\n");
 
 	prog = compile(re);
 	printprog(prog);
+	nfa2dfa(prog);
 
 	for(i=2; i<argc; i++) {
 		printf("#%d %s\n", i, argv[i]);

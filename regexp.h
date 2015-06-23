@@ -97,3 +97,5 @@ int pikevm(Prog*, char*, char**, int);
 int recursiveloopprog(Prog*, char*, char**, int);
 int recursiveprog(Prog*, char*, char**, int);
 int thompsonvm(Prog*, char*, char**, int);
+
+void nfa2dfa(Prog *p);

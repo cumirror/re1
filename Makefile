@@ -15,6 +15,7 @@ OFILES=\
 	sub.o\
 	thompson.o\
 	y.tab.o\
+	nfa2dfa.o\
 
 HFILES=\
 	regexp.h\
