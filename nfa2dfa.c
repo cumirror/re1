@@ -1,5 +1,6 @@
 #include "regexp.h"
 #include <stdlib.h>
+#include <string.h>
 
 int compare(const void *a, const void *b)
 {
@@ -76,73 +77,87 @@ int move(Inst *start, int *closure, int n, char a, int *trans)
     return count;
 }
 
-struct Dfa {
+struct Node {
     short mark;/* marked or not */
     short flag;/* accepr or not */
-    struct Dfa *trans[256];
-    struct Dfa *next;
+    struct Node *trans[256];
+    struct Node *next;
     int n;
     int *nstates;
 };
 
+#define MAX_ALPHABET_NUM 128
+struct Dfa {
+    struct Node *head;
+    struct Node *tail;
+    unsigned short num;
+    unsigned short accept;
+    char alphabet[MAX_ALPHABET_NUM];
+};
 
-static struct Dfa *head;
-static struct Dfa *tail;
+static struct Dfa dfa;
 
-static struct Dfa *newDfaNode(Prog *p, int *nstates, int n)
+void init()
 {
-    struct Dfa *dfa = (struct Dfa *)mal(sizeof(struct Dfa));
+    memset(&dfa, 0, sizeof(struct Dfa));
+}
+
+static struct Node *newNode(Prog *p, int *nstates, int n)
+{
+    struct Node *node = (struct Node *)mal(sizeof(struct Node));
     int *ns = (int *)mal(sizeof(int)*n);
 
-    dfa->next = NULL;
-    dfa->n = n;
-    dfa->nstates = ns;
+    node->next = NULL;
+    node->n = n;
+    node->nstates = ns;
     memcpy(ns, nstates, sizeof(int)*n);
 
-    if (head == NULL) {
-        head = dfa;
-        tail = dfa;
+    dfa.num += 1;
+    if (dfa.head == NULL) {
+        dfa.head = node;
+        dfa.tail = node;
     } else {
-        tail->next = dfa;
-        tail = dfa;
+        dfa.tail->next = node;
+        dfa.tail = node;
     }
 
     if ((p->len - 1) == nstates[n-1])
-        dfa->flag = 1;
+        node->flag = 1;
 
-    return dfa;
+    return node;
 }
 
-static struct Dfa *DfaSearch(int *nstates, int n)
+static struct Node *NodeSearch(int *nstates, int n)
 {
-    struct Dfa *dfa = head;
+    struct Node *node = dfa.head;
 
-    while(dfa) {
-        if (dfa->n == n && memcmp(dfa->nstates, nstates, sizeof(int)*n) == 0)
+    while(node) {
+        if (node->n == n && memcmp(node->nstates, nstates, sizeof(int)*n) == 0)
             break;
-        dfa = dfa->next;
+        node = node->next;
     }
 
-    return dfa;
+    return node;
 }
 
-static struct Dfa *findDfaNoMark()
+static struct Node *findNodeNoMark()
 {
-    struct Dfa *dfa = head;
+    struct Node *node = dfa.head;
 
-    while(dfa) {
-        if (dfa->mark == 0)
+    while(node) {
+        if (node->mark == 0)
             break;
-        dfa = dfa->next;
+        node = node->next;
     }
 
-    return dfa;
+    return node;
 }
 
-int getAcceptAlphabet(Prog *p, char *alphabet)
+int getAlphabet(Prog *p)
 {
     Inst *pc, *e;
     int count = 0;
+    char *alphabet = dfa.alphabet;
 
     pc = p->start;
     e = p->start + p->len;
@@ -154,44 +169,34 @@ int getAcceptAlphabet(Prog *p, char *alphabet)
         }
     }
 
+    dfa.accept = count;
     return count;
 }
 
-#define REGEX_ALPHABET_NUM 128
-void miniSizeDfa(Prog *p, struct Dfa *head)
+static void miniSize()
 {
-
-#if 0
-    char alph[REGEX_ALPHABET_NUM] = {0};
-    int alphSize;
-    alphSize = getAcceptAlphabet(p, alph);
-    printf("Accept alphabet num is %d\n\t", alphSize);
-    for(i = 0; i < REGEX_ALPHABET_NUM; i++) {
-        if (alph[i] == 1)
-            printf("%c ", i);
-    }
-    printf("\n");
-#endif
-
+    ;
 }
-void dumpDfa()
+
+static void dump()
 {
-    struct Dfa *dfa = head;
+    struct Node *node = dfa.head;
     //int i;
 
-    while(dfa) {
-        printf("\t%p | ", dfa);
-        printf("%c | ", dfa->flag == 1 ? 'F' : 'M');
-        printIntArray(dfa->nstates, dfa->n);
+    printf("Dfa:\n\tNode num %d\n", dfa.num);
+    while(node) {
+        printf("\t%p | ", node);
+        printf("%c | ", node->flag == 1 ? 'F' : 'M');
+        printIntArray(node->nstates, node->n);
         printf("| ");
 #if 0
         for(i = 'a'; i <= 'z'; i++) {
-            if (dfa->trans[i])
-                printf(" %c -> %p ", i, dfa->trans[i]);
+            if (node->trans[i])
+                printf(" %c -> %p ", i, node->trans[i]);
         }
 #endif
         printf("\n");
-        dfa = dfa->next;
+        node = node->next;
     }
 }
 
@@ -199,27 +204,32 @@ void nfa2dfa(Prog *p)
 {
     int *nstates = (int*)mal((p->len)* sizeof(int));
     int i, n;
-    struct Dfa *dfa, *nextdfa;
+    struct Node *node, *nextnode;
 
     printf("nfa states num %d transto dfa:\n", p->len);
 
+    init();
     n = e_closure(p->start, nstates, 1);
-    dfa = newDfaNode(p, nstates, n);/* s0 */
+    node = newNode(p, nstates, n);/* s0 */
 
-    while((dfa = findDfaNoMark())) {
-        dfa->mark = 1;
+    while((node = findNodeNoMark())) {
+        node->mark = 1;
         for(i = 'a'; i <= 'z'; i++) {
-            if ((n = move(p->start, dfa->nstates, dfa->n, i, nstates)) == 0)
+            if ((n = move(p->start, node->nstates, node->n, i, nstates)) == 0)
                 continue;
 
             n = e_closure(p->start, nstates, n);
-            if ((nextdfa = DfaSearch(nstates, n)) == NULL)
-                nextdfa = newDfaNode(p, nstates, n);
-            dfa->trans[i] = nextdfa;
+            if ((nextnode = NodeSearch(nstates, n)) == NULL)
+                nextnode = newNode(p, nstates, n);
+            node->trans[i] = nextnode;
         }
     }
 
-    dumpDfa();
-    miniSizeDfa(p, head);
+    getAlphabet(p);
+    dump();
+    miniSize();
 
 }
+
+
+
