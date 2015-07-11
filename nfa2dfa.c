@@ -78,11 +78,12 @@ int move(Inst *start, int *closure, int n, char a, int *trans)
 }
 
 struct Node {
-    short mark;/* marked or not */
-    short flag;/* accepr or not */
+    short mark;                 /* marked or not */
+    short flag;                 /* accepr or not */
     struct Node *trans[256];
     struct Node *next;
-    int n;
+    int index;                  /* index used for dfa compress */
+    int n;                      /* num of states */
     int *nstates;
 };
 
@@ -111,6 +112,7 @@ static struct Node *newNode(Prog *p, int *nstates, int n)
     node->n = n;
     node->nstates = ns;
     memcpy(ns, nstates, sizeof(int)*n);
+    node->index = dfa.num;
 
     dfa.num += 1;
     if (dfa.head == NULL) {
@@ -153,7 +155,7 @@ static struct Node *findNodeNoMark()
     return node;
 }
 
-int getAlphabet(Prog *p)
+static int getAlphabet(Prog *p)
 {
     Inst *pc, *e;
     int count = 0;
@@ -169,13 +171,15 @@ int getAlphabet(Prog *p)
         }
     }
 
+    count++;/* 1 for others */
     dfa.accept = count;
     return count;
 }
 
 static void miniSize()
 {
-    ;
+   /* TODO */ ;
+
 }
 
 static void dump()
@@ -188,18 +192,20 @@ static void dump()
         printf("\t%p | ", node);
         printf("%c | ", node->flag == 1 ? 'F' : 'M');
         printIntArray(node->nstates, node->n);
-        printf("| ");
+        printf("| \n");
 #if 0
         for(i = 'a'; i <= 'z'; i++) {
             if (node->trans[i])
-                printf(" %c -> %p ", i, node->trans[i]);
+                printf(" %c -> %p \n", i, node->trans[i]);
         }
-#endif
         printf("\n");
+#endif
         node = node->next;
     }
 }
 
+static void dfaCompress();
+static void dumpDfaCompress();
 void nfa2dfa(Prog *p)
 {
     int *nstates = (int*)mal((p->len)* sizeof(int));
@@ -229,7 +235,108 @@ void nfa2dfa(Prog *p)
     dump();
     miniSize();
 
+    dfaCompress();
+    dumpDfaCompress();
 }
 
+typedef unsigned int DfaIndex;
+struct NodeCompress {
+    short flag;
+    DfaIndex next[0];
+};
+
+struct DfaCompress {
+    unsigned short num;
+    unsigned short accept;
+    char acceptAlphabet[MAX_ALPHABET_NUM];
+    char alphabet[MAX_ALPHABET_NUM];
+    struct NodeCompress *states;
+};
+
+#define dfaNodeTrans(node, size, offset) \
+    ((struct NodeCompress *)((char*)(node) + (size)*(offset)))
+
+static struct DfaCompress dfaFinal;
+
+static void dfaNodesCompress(struct NodeCompress *s1, struct Node *s2, int size, char *a)
+{
+    int i;
+    struct Node *node = s2;
+    struct NodeCompress *ns;
+
+    while(node) {
+        ns = dfaNodeTrans(s1, size, node->index);
+        ns->flag = node->flag;
+        for(i = 0; i <= MAX_ALPHABET_NUM; i++) {
+            if (node->trans[i])
+                ns->next[(int)a[i]] = node->trans[i]->index;
+        }
+        node = node->next;
+    }
+
+    return;
+}
+
+static void dumpDfaCompress()
+{
+    int i, j, size;
+    struct NodeCompress *node;
+    struct NodeCompress *ns;
+
+    size = sizeof(struct NodeCompress) + sizeof(DfaIndex) * dfaFinal.accept;
+
+    printf("\n");
+    printf("Dfa compress:\n");
+    for(i = 'a'; i <= 'z'; i++) {
+        printf("%2c ", i);
+    }
+    printf("\n");
+    for(i = 'a'; i <= 'z'; i++) {
+        printf("%2d ", dfaFinal.alphabet[i]);
+    }
+    printf("\n        ");
+    for(i = 0; i <= dfaFinal.accept; i++) {
+        printf("%2c ", dfaFinal.acceptAlphabet[i]);
+    }
+    printf("\n");
+    ns = dfaFinal.states;
+    for(i = 0; i < dfaFinal.num; i++) {
+        node = dfaNodeTrans(ns, size, i);
+        printf("node %d: ", i);
+        for(j = 0; j < dfaFinal.accept; j++) {
+            printf("%2d ", node->next[j]);
+        }
+        printf("\n");
+    }
+}
+
+void dfaCompress()
+{
+    int stateSize, i, count;
+    struct NodeCompress *nd;
+    char *acceptAlphabet = dfaFinal.acceptAlphabet;
+    char *alphabet = dfaFinal.alphabet;
+
+    dfaFinal.num = dfa.num;
+    dfaFinal.accept = dfa.accept;
+    memcpy(dfaFinal.alphabet, dfa.alphabet, MAX_ALPHABET_NUM);
+
+    acceptAlphabet[0] = '*';
+    for(i = 0, count = 0; i < MAX_ALPHABET_NUM; i++) {
+        if (alphabet[i]) {
+            count++;
+            acceptAlphabet[count] = i;
+            alphabet[i] = count;
+        }
+    }
+
+    stateSize = sizeof(struct NodeCompress) + sizeof(DfaIndex) * dfaFinal.accept;
+
+    nd = (struct NodeCompress *)mal(stateSize * dfaFinal.num);
+
+    dfaNodesCompress(nd, dfa.head, stateSize, dfaFinal.alphabet);
+
+    dfaFinal.states = nd;
+}
 
 
